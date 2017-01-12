@@ -1,0 +1,14 @@
+heat_template_version: 2014-10-16
+
+description: Simple HOT template to deploy a single compute instance
+
+resources:  
+ my_instance:    
+   type: OS::Nova::Server
+   properties:      
+     image: Standard_openSUSE_42.1_JeOS_latest
+     flavor: c1.medium
+     key_name: my_key
+     networks:
+       - network: my_network_id
+     user_data_format: RAW
