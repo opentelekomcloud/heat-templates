@@ -1,0 +1,68 @@
+heat_template_version: '2013-05-23'
+
+description: >
+  HOT template to create a new server with public IP (EIP) on OTC
+
+parameters:
+  flavor: 
+    type: string
+    description: Flavor to use for servers
+    default: c1.medium
+  image: 
+    type: string
+    description: Name of image
+    default: Standard_openSUSE_42.1_JeOS_latest
+  key_name: 
+    type: string
+    description: Name of keypair
+    default: heat_key
+  private_net_id: 
+    type: string
+    description: ID of private network into which servers get deployed
+  private_subnet_id: 
+    type: string
+    description: ID of private sub network into which servers get deployed
+  public_net_id: 
+    type: string
+    description: ID of public network for which floating IP addresses will be allocated
+    default: 0a2228f2-7f8a-45f1-8e09-9039e1d09975
+  server_security_group: 
+    type: string
+    description: ID of security group
+    default: sg-ssh
+
+resources:
+  server1:
+    properties:
+      flavor: {get_param: flavor}
+      image: {get_param: image}
+      key_name: {get_param: key_name}
+      name: Server1
+      networks:
+      - port: {get_resource: server1_port}
+    type: OS::Nova::Server
+  server1_floating_ip:
+    depends_on: server1
+    properties:
+      floating_network_id: {get_param: public_net_id}
+      port_id: {get_resource: server1_port}
+    type: OS::Neutron::FloatingIP
+  server1_port:
+    properties:
+      fixed_ips:
+      - subnet_id: {get_param: private_subnet_id}
+      network_id: {get_param: private_net_id}
+      security_groups:
+      - {get_param: server_security_group}
+    type: OS::Neutron::Port
+
+outputs:
+  server1_private_ip:
+    description: IP address of server1 in private network
+    value:
+      get_attr: [server1, first_address]
+  server1_public_ip:
+    description: Floating IP address of server1 in public network
+    value:
+      get_attr: [server1_floating_ip, floating_ip_address]
+
