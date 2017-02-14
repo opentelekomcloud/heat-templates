@@ -1,0 +1,144 @@
+heat_template_version: '2014-10-16'
+
+### TODO
+# DNS Server
+# IP server immer .5 -> ifconfig eth0 | grep -oP 'inet addr:\K\S+'
+# iptables rules
+# tenant info
+
+description: >
+  HOT template to create a SNAT instance on OTC
+  New security group, private network and VM with Public IP are created.
+  
+
+parameters:
+  ssh_key:
+    description: Name of the SSH key to be created
+    type: string
+    default: heat_key
+  flavor:
+    type: string
+    description: Flavor to use for servers
+    default: c1.medium
+  image:
+    type: string
+    description: Name of image
+    default: Standard_openSUSE_42_JeOS_latest
+  public_net_id:
+    type: string
+    description: ID of public network for which floating IP addresses will be allocated
+    default: 0a2228f2-7f8a-45f1-8e09-9039e1d09975
+  sg_name:
+    description: Name of the security group to be created
+    type: string
+    default: snat_sg
+  private_net_name:
+    type: string
+    description: Name of private network to be created
+    default: snat_subnet
+  private_net_cidr:
+    type: string
+    description: Private network address (CIDR notation)
+    default: 172.16.1.0/24
+  private_net_gateway:
+    type: string
+    description: Private network gateway address
+    default: 172.16.1.1
+  private_net_pool_start:
+    type: string
+    description: Start of private network IP address allocation pool
+    default: 172.16.1.4
+  private_net_pool_end:
+    type: string
+    description: End of private network IP address allocation pool
+    default: 172.16.1.252
+    
+
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: private_net_name }
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: { get_param: private_net_cidr }
+      gateway_ip: { get_param: private_net_gateway }
+      allocation_pools:
+        - start: { get_param: private_net_pool_start }
+          end: { get_param: private_net_pool_end }
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_net_id }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: {get_param: sg_name}
+      rules:
+        - protocol: icmp
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+
+  instance1_userdata:
+     type: OS::Heat::SoftwareConfig 
+     properties:
+       group: ungrouped
+       config:
+         str_replace:
+           template: |
+             #!/bin/bash -x
+             export snat_portid=$snat_portid
+             export snat_net_cidr=$snat_net_cidr
+             neutron port-update $snat_portid --allowed-address-pairs type=dict list=true ip_address=0.0.0.0/1 ip_address=128.0.0.0/1
+             sysctl -w net.ipv4.ip_forward=1
+           params:
+             $snat_portid: { get_resource: instance1_port }
+             $snat_net_cidr: { get_param: private_net_cidr }
+   
+  snat_instance1:
+     type: OS::Nova::Server
+     properties:
+       flavor: { get_param: flavor }
+       image: { get_param: image }
+       key_name: { get_param: ssh_key }
+       networks: 
+         - port: { get_resource: instance1_port }
+       security_groups: 
+         - { get_resource: security_group }
+       user_data: { get_resource: instance1_userdata }
+       user_data_format: RAW
+
+  instance1_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+
+  instance1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: public_net_id }
+      port_id: { get_resource: instance1_port }
+    depends_on: snat_instance1
+
+outputs:
+  instance1_private_ip:
+    description: IP address of server2 in private network
+    value: { get_attr: [ snat_instance1, first_address ] }
+  instance1_public_ip:
+    description: Floating IP address of server2 in public network
+    value: { get_attr: [ instance1_floating_ip, floating_ip_address ] }
