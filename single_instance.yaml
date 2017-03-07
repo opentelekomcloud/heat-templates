@@ -1,6 +1,6 @@
-heat_template_version: 2014-10-16
+heat_template_version: 2015-04-30
 
-description: Simple HOT template to deploy a single compute instance
+description: Simple HOT template to deploy instance on OTC
 
 resources:  
  my_instance:    
