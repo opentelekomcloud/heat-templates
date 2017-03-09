@@ -1,0 +1,239 @@
+heat_template_version: '2014-10-16'
+
+description: >
+  HOT template to create single Wordpress instance on OTC
+  Creates new router and private subnet, new security group
+  Downloads and installs MariaDB, PHP, Apache and Wordpress 
+
+parameters:
+
+  key_name:
+    type: string
+    description: Name of a KeyPair to enable SSH access to the instance
+    default: wp_demo_key
+  flavor:
+    type: string
+    description: Instance type for WordPress server
+    default: c1.medium
+  image:
+    type: string
+    description: OTC Images
+    default: Standard_CentOS_7.3_latest
+  public_net_id:
+    type: string
+    description: ID of OTC public network
+    default: 0a2228f2-7f8a-45f1-8e09-9039e1d09975
+  security_group_name:
+    type: string
+    description: ID of security group
+    default: wp_demo_sg 
+  private_net_name:
+    type: string
+    description: Name of private network to be created
+    default: wp_demo_subnet
+  private_net_cidr:
+    type: string
+    description: Private network address (CIDR notation)
+    default: 172.16.11.0/24
+  private_net_gateway:
+    type: string
+    description: Private network gateway address
+    default: 172.16.11.1
+  private_net_pool_start:
+    type: string
+    description: Start of private network IP address allocation pool
+    default: 172.16.11.4
+  private_net_pool_end:
+    type: string
+    description: End of private network IP address allocation pool
+    default: 172.16.11.252
+  private_net_dns:
+    type: string
+    description: DNS servers
+    default: [100.125.4.25, 8.8.8.8]
+
+  db_name:
+    type: string
+    description: WordPress database name
+    default: wordpress
+    constraints:
+      - length: { min: 1, max: 64 }
+        description: db_name must be between 1 and 64 characters
+      - allowed_pattern: '[a-zA-Z][a-zA-Z0-9]*'
+        description: >
+          db_name must begin with a letter and contain only alphanumeric
+          characters
+  db_username:
+    type: string
+    description: The WordPress database admin account username
+    default: admin
+    hidden: true
+    constraints:
+      - length: { min: 1, max: 16 }
+        description: db_username must be between 1 and 16 characters
+      - allowed_pattern: '[a-zA-Z][a-zA-Z0-9]*'
+        description: >
+          db_username must begin with a letter and contain only alphanumeric
+          characters
+  db_password:
+    type: string
+    description: The WordPress database admin account password
+    default: admin
+    hidden: true
+    constraints:
+      - length: { min: 1, max: 41 }
+        description: db_password must be between 1 and 41 characters
+      - allowed_pattern: '[a-zA-Z0-9]*'
+        description: db_password must contain only alphanumeric characters
+  db_root_password:
+    type: string
+    description: Root password for MySQL
+    default: admin
+    hidden: true
+    constraints:
+      - length: { min: 1, max: 41 }
+        description: db_root_password must be between 1 and 41 characters
+      - allowed_pattern: '[a-zA-Z0-9]*'
+        description: db_root_password must contain only alphanumeric characters
+
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: private_net_name }
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: { get_param: private_net_cidr }
+      gateway_ip: { get_param: private_net_gateway }
+      dns_nameservers: { get_param: private_net_dns }
+      allocation_pools:
+        - start: { get_param: private_net_pool_start }
+          end: { get_param: private_net_pool_end }
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_net_id }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: {get_param: security_group_name}
+      rules:
+        - protocol: icmp
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+        - protocol: tcp
+          port_range_min: 443
+          port_range_max: 443
+
+  wp_demo_instance:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: {get_resource: wp_demo_port}
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash -x
+
+            echo "100.125.4.20 smt01-suse.otc-service.com" >> /etc/hosts
+
+            yum -y update
+
+            echo "[mariadb]" > /etc/yum.repos.d/MariaDB.repo
+            echo "name = MariaDB" >> /etc/yum.repos.d/MariaDB.repo
+            echo "baseurl = http://yum.mariadb.org/10.2.3/centos7-amd64/" >> /etc/yum.repos.d/MariaDB.repo
+            echo "gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB" >> /etc/yum.repos.d/MariaDB.repo
+            echo "gpgcheck=1" >> /etc/yum.repos.d/MariaDB.repo
+
+            yum -y install httpd lynx
+            yum -y install MariaDB-server
+            yum -y erase mariadb-*
+            yum -y install MariaDB-server
+
+            systemctl start mariadb
+            systemctl enable mariadb
+
+            # Setup MySQL root password and create a user
+            mysqladmin -u root password $db_rootpassword
+            cat << EOF | mysql -u root --password=$db_rootpassword
+            CREATE DATABASE $db_name;
+            GRANT ALL PRIVILEGES ON $db_name.* TO $db_user@localhost IDENTIFIED BY '$db_password';
+            FLUSH PRIVILEGES;
+            EXIT
+            EOF
+
+            # Install Wordpress
+            yum -y install php-gd
+            cd /tmp 
+            wget https://wordpress.org/latest.tar.gz
+            tar -zxvf latest.tar.gz -C /var/www/html/
+            chown -R apache:apache /var/www/html/*
+            cp /var/www/html/wordpress/wp-config-sample.php /var/www/html/wordpress/wp-config.php
+
+            #sed -i "/Deny from All/d" /etc/httpd/conf.d/wordpress.conf
+            #sed -i "s/Require local/Require all granted/" /etc/httpd/conf.d/wordpress.conf
+            sed -i s/database_name_here/$db_name/ /var/www/html/wordpress/wp-config.php
+            sed -i s/username_here/$db_user/ /var/www/html/wordpress/wp-config.php
+            sed -i s/password_here/$db_password/ /var/www/html/wordpress/wp-config.php
+            sed -i s/localhost/$db_host/ /var/www/html/wordpress/wp-config.php
+
+            systemctl start httpd
+            systemctl enable httpd
+          params:
+            $db_rootpassword: { get_param: db_root_password }
+            $db_name: { get_param: db_name }
+            $db_user: { get_param: db_username }
+            $db_password: { get_param: db_password }
+
+  wp_demo_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      port_id: {get_resource: wp_demo_port}
+      floating_network_id: {get_param: public_net_id}
+    depends_on: wp_demo_instance
+
+  wp_demo_port:
+    type: OS::Neutron::Port
+    properties:
+      fixed_ips:
+      - subnet_id: {get_resource: private_subnet}
+      network_id: {get_resource: private_net}
+      security_groups:
+      - {get_resource: security_group}
+
+outputs:
+  PublicIP:
+    description: IP address in public network
+    value:
+      get_attr: [wp_demo_floating_ip, floating_ip_address]
+  PrivateIp:
+    description: IP address in private network
+    value:
+      get_attr: [wp_demo_instance, first_address]
+  WebsiteURL:
+    description: URL for Wordpress wiki
+    value:
+      str_replace:
+        template: http://host/wordpress
+        params:
+          host: { get_attr: [wp_demo_instance, first_address] }
