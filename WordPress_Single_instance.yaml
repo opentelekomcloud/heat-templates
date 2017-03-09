@@ -3,7 +3,6 @@ heat_template_version: '2014-10-16'
 description: >
   HOT template to create single Wordpress instance on OTC
   Creates new router and private subnet, new security group
-  Fixed public IP is used, can be specefied by floatingip_id_fixed
   Downloads and installs MariaDB, PHP, Apache and Wordpress 
 
 parameters:
@@ -24,10 +23,6 @@ parameters:
     type: string
     description: ID of OTC public network
     default: 0a2228f2-7f8a-45f1-8e09-9039e1d09975
-  floatingip_id_fixed:
-    type: string
-    description: ID of the fixed public IP address
-    default: 2964c498-6921-4c86-970e-51900638b64d
   security_group_name:
     type: string
     description: ID of security group
@@ -211,10 +206,10 @@ resources:
             $db_password: { get_param: db_password }
 
   wp_demo_floating_ip:
-    type: OS::Neutron::FloatingIPAssociation
+    type: OS::Neutron::FloatingIP
     properties:
       port_id: {get_resource: wp_demo_port}
-      floatingip_id: {get_param: floatingip_id_fixed}
+      floating_network_id: {get_param: public_net_id}
     depends_on: wp_demo_instance
 
   wp_demo_port:
@@ -227,6 +222,10 @@ resources:
       - {get_resource: security_group}
 
 outputs:
+  PublicIP:
+    description: IP address in public network
+    value:
+      get_attr: [wp_demo_floating_ip, floating_ip_address]
   PrivateIp:
     description: IP address in private network
     value:
