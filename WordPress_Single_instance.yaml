@@ -143,6 +143,7 @@ resources:
 
   wp_demo_instance:
     type: OS::Nova::Server
+    depends_on: router_interface
     properties:
       image: { get_param: image }
       flavor: { get_param: flavor }
@@ -173,6 +174,9 @@ resources:
             systemctl start mariadb
             systemctl enable mariadb
 
+            firewall-cmd --permanent --add-service=http
+            firewall-cmd --add-service=http
+
             # Setup MySQL root password and create a user
             mysqladmin -u root password $db_rootpassword
             cat << EOF | mysql -u root --password=$db_rootpassword
@@ -183,19 +187,20 @@ resources:
             EOF
 
             # Install Wordpress
-            yum -y install php-gd
+            yum -y install php-gd php php-mysql
             cd /tmp 
             wget https://wordpress.org/latest.tar.gz
-            tar -zxvf latest.tar.gz -C /var/www/html/
+            tar -zxvf latest.tar.gz -C /tmp/
+            cp -r /tmp/wordpress/* /var/www/html/
             chown -R apache:apache /var/www/html/*
-            cp /var/www/html/wordpress/wp-config-sample.php /var/www/html/wordpress/wp-config.php
+            cp /var/www/html/wp-config-sample.php /var/www/html/wp-config.php
 
             #sed -i "/Deny from All/d" /etc/httpd/conf.d/wordpress.conf
             #sed -i "s/Require local/Require all granted/" /etc/httpd/conf.d/wordpress.conf
-            sed -i s/database_name_here/$db_name/ /var/www/html/wordpress/wp-config.php
-            sed -i s/username_here/$db_user/ /var/www/html/wordpress/wp-config.php
-            sed -i s/password_here/$db_password/ /var/www/html/wordpress/wp-config.php
-            sed -i s/localhost/$db_host/ /var/www/html/wordpress/wp-config.php
+            sed -i s/database_name_here/$db_name/ /var/www/html/wp-config.php
+            sed -i s/username_here/$db_user/ /var/www/html/wp-config.php
+            sed -i s/password_here/$db_password/ /var/www/html/wp-config.php
+            sed -i s/localhost/$db_host/ /var/www/html/wp-config.php
 
             systemctl start httpd
             systemctl enable httpd
