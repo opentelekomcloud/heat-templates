@@ -1,0 +1,54 @@
+heat_template_version: 2015-04-30
+
+description: Simple HOT template to create a server group with 2 VMs on OTC
+
+parameters:
+
+  key_name:
+    type: string
+    description: Name of a KeyPair to enable SSH access to the instance
+    default: heat-key
+  flavor:
+    type: string
+    description: Instance type for WordPress server
+    default: c1.medium
+  image:
+    type: string
+    description: OTC Images
+    default: Standard_openSUSE_42.2_JeOS_latest
+  network:
+    type: string
+    description: The network for the VM
+  srvgroup_name:
+    type: string
+    description: Name of the ServerGroup
+    default: ServerGroup
+
+resources:
+ srvgroup: 
+   type: OS::Nova::ServerGroup 
+   properties: 
+     name:  { get_param: srvgroup_name }
+     policies: [ 'anti-affinity' ] 
+ vm1:
+   type: OS::Nova::Server
+   properties:
+     image: { get_param: image }
+     flavor: { get_param: flavor }
+     key_name: { get_param: key_name }
+     networks:
+       - network: { get_param: network }
+     user_data_format: RAW
+     scheduler_hints: 
+        group: { get_resource: srvgroup }
+ vm2:
+   type: OS::Nova::Server
+   properties:
+     image: { get_param: image }
+     flavor: { get_param: flavor }
+     key_name: { get_param: key_name }
+     networks:
+       - network: { get_param: network }
+     user_data_format: RAW
+     scheduler_hints: 
+        group: { get_resource: srvgroup }
