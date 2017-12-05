@@ -1,0 +1,40 @@
+heat_template_version: 2013-05-23
+
+description: 
+  HOT template to deploy HPF Ubuntu VM and install Mellanox drivers
+
+parameters:
+  key_name:
+    type: string
+    description: Name of an existing key pair to use for the instance
+    default: my_key
+  network:
+    type: string
+    description: The network for the VM
+    default: a45173e7-3c00-485f-b297-3bd73bd6d80b
+
+resources:
+  my_instance:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_param: key_name }
+      image: Community_Ubuntu_16.04_TSI_latest
+      flavor: h2.3xlarge.10
+      networks: 
+        - network: { get_param: network }
+      user_data_format: RAW
+      user_data:
+          #!/bin/bash -x
+          echo "Installing Mellanox drivers"
+          apt-get update
+          wget -qO - http://www.mellanox.com/downloads/ofed/RPM-GPG-KEY-Mellanox | sudo apt-key add -
+          cd /etc/apt/sources.list.d/
+          wget http://linux.mellanox.com/public/repo/mlnx_ofed/latest/ubuntu16.04/mellanox_mlnx_ofed.list
+          apt-get update
+          apt-get install mlnx-ofed-all 
+          echo "Finished Mellanox driver installation"
+
+outputs:
+  instance_networks:
+    description: The IP addresses of the deployed instance
+    value: { get_attr: [my_instance, networks] }
