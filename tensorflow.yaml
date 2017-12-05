@@ -1,0 +1,148 @@
+heat_template_version: '2014-10-16'
+
+description: >
+  HOT template to create single Tensorflow instance on OTC
+  Install CUDA 8.0, cuDNN 5.1, python-pip, tensorflow-gpu
+  Private Ubuntu image and link to cuDNN 5.1 software required!
+
+parameters:
+
+  key_name:
+    type: string
+    description: Name of a KeyPair to enable SSH access to the instance
+    default: tf_key
+  image:
+    type: string
+    description: Private Ubuntu16 image
+    default: private-ubuntu-16.04
+  cuDNN_url:
+    type: string
+    description: Link to cuDNN 5.1 tar file
+    default: https://my-private-webserver/cudnn-8.0-linux-x64-v5.1.tgz
+  private_net:
+    type: string
+    description: ID of private network into which servers get deployed
+    default: a45173e7-3c00-485f-b297-3bd73bd6d80b
+  private_subnet:
+    type: string
+    description: ID of private sub network into which servers get deployed
+    default: 7b516a68-81cc-443d-a62b-cd1ae902d3c7
+
+resources:
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: tf-sg
+      rules:
+        - protocol: icmp
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - protocol: tcp
+          port_range_min: 6006
+          port_range_max: 6006
+
+  tf_instance:
+    type: OS::Nova::Server
+    properties:
+      name: tf-server1
+      flavor: g2.2xlarge
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      networks:
+        - port: {get_resource: tf_port}
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash -x
+
+            sleep 60
+
+            echo "deb-src http://debmirror01.otc-service.com/archive.ubuntu.com/ubuntu xenial main restricted universe multiverse" >> /etc/apt/sources.list
+            echo "deb-src  http://debmirror01.otc-service.com/security.ubuntu.com/ubuntu xenial-security main universe multiverse " >> /etc/apt/sources.list
+            #sudo dpkg --configure -a
+            apt-get update
+            apt-get upgrade -y
+            apt-get dist-upgrade -y
+
+            apt-get install build-essential -y
+            echo -e "blacklist nouveau\nblacklist lbm-nouveau\noptions nouveau modeset=0\nalias nouveau off\nalias lbm-nouveau off\n" |\
+                     tee /etc/modprobe.d/blacklist-nouveau.conf
+            echo options nouveau modeset=0 | tee -a /etc/modprobe.d/nouveau-kms.conf
+            sudo update-initramfs -u
+
+            apt-get install linux-image-extra-virtual -y
+
+            apt-get install linux-source -y
+            apt-get source linux-image-$(uname -r) -y
+            apt-get install linux-headers-$(uname -r)
+
+            cd /home/ubuntu
+            #wget https://developer.nvidia.com/compute/cuda/8.0/Prod2/local_installers/cuda_8.0.61_375.26_linux-run
+            #chmod +x cuda_8.0.61_375.26_linux-run
+            #sudo sh cuda_8.0.61_375.26_linux-run --override --no-opengl-lib --silent --driver --toolkit --samples
+
+            
+            wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1604/x86_64/cuda-repo-ubuntu1604_8.0.61-1_amd64.deb
+            dpkg -i cuda-repo-ubuntu1604_8.0.61-1_amd64.deb
+            apt-get update
+            apt-get install cuda
+
+
+            echo -e "export LD_LIBRARY_PATH=\"\$LD_LIBRARY_PATH:/usr/local/cuda-8.0/lib64:/usr/local/cuda/extras/CUPTI/lib64\"" |\
+                    sudo tee -a /home/ubuntu/.bashrc
+            echo -e "export CUDA_HOME=/usr/local/cuda-8.0" | sudo tee -a /home/ubuntu/.bashrc
+            source /home/ubuntu/.bashrc
+
+            cd /home/ubuntu
+            wget '$cuDNN_url'
+            tar -zxf cudnn-8.0-linux-x64-v5.1.tgz
+            cd cuda
+            cp lib64/* /usr/local/cuda-8.0/lib64/
+            cp include/* /usr/local/cuda-8.0/include/
+            chmod a+r /usr/local/cuda-8.0/include/cudnn.h /usr/local/cuda-8.0/lib64/libcudnn*
+
+            # Install Tensorflow and prereqs 
+            apt-get install libcupti-dev python-pip -y
+            pip install tensorflow-gpu
+
+            echo "python - << EOF"  > /home/ubuntu/tf-test.sh
+            echo "import tensorflow as tf" >> /home/ubuntu/tf-test.sh
+            echo "hello = tf.constant('Hello, TensorFlow!')" >> /home/ubuntu/tf-test.sh
+            echo "sess = tf.Session()" >> /home/ubuntu/tf-test.sh
+            echo "print(sess.run(hello))" >> /home/ubuntu/tf-test.sh
+            echo "EOF" >> /home/ubuntu/tf-test.sh
+            chmod +x /home/ubuntu/tf-test.sh
+            /home/ubuntu/tf-test.sh > /home/ubuntu/tf-test.out
+            
+            reboot
+
+          params:
+            $cuDNN_url: { get_param: cuDNN_url }
+
+  tf_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      port_id: {get_resource: tf_port}
+      floating_network_id: 0a2228f2-7f8a-45f1-8e09-9039e1d09975
+    depends_on: tf_instance
+
+  tf_port:
+    type: OS::Neutron::Port
+    properties:
+      fixed_ips:
+      - subnet_id: {get_param: private_subnet}
+      network_id: {get_param: private_net}
+      security_groups:
+      - {get_resource: security_group}
+
+outputs:
+  PublicIP:
+    description: IP address in public network
+    value:
+      get_attr: [tf_floating_ip, floating_ip_address]
+  PrivateIp:
+    description: IP address in private network
+    value:
+      get_attr: [tf_instance, first_address]
