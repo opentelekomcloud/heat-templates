@@ -1,0 +1,71 @@
+heat_template_version: 2013-05-23
+description: AutoScaling Test
+parameters:
+  key_name:
+    type: string
+    description: key name used for servers
+    default: heat_key
+  image:
+    type: string
+    description: Image used for servers
+    default: e4f8e320-38b0-49f1-be57-65a85d3fed44
+  flavor:
+    type: string
+    description: flavor used by the web servers
+    default: normal1
+  vpc_id:
+    type: string
+    description: vpc_id on which the load balancer will be located
+    default: 9dc73bec-70bf-4adb-8a09-bd5ba2aa551c
+  subnet:
+    type: string
+    description: subnet on which the load balancer will be located
+    default: 75de6170-cdf7-41f4-ab93-d9a7c5b31bdc
+  available_zones:
+    type: string
+    description: availibility zone
+    default: eu-de-01
+  security_groups:
+    type: string
+    description: security groups for create instance
+    default: fc0d8ac0-c9a2-400f-b379-d730b3489949
+  scaling_configuration_name:
+    type: string
+    default: as-config-01
+  scaling_group_name:
+    type: string
+    default: as-group-01
+resources:
+  auto_scaling_config:
+    type: OSE::AS::ScalingConfig
+    properties:
+      scaling_configuration_name: {get_param: scaling_configuration_name}
+      instance_config:
+        key_name: {get_param: key_name}
+        flavorRef: {get_param: flavor}
+        imageRef: {get_param: image}
+        disk:
+         - disk_type: SYS
+           size: 200
+           volume_type: SATA
+        user_data: #NA
+  auto_scaling_group:
+    type: OSE::AS::ScalingGroup
+    properties:
+      scaling_group_name: {get_param: scaling_group_name}
+      scaling_configuration_id: {get_resource: auto_scaling_config}
+      desire_instance_number: 1
+      min_instance_number: 0
+      max_instance_number: 2
+      cool_down_time: 900
+      available_zones:
+        - { get_param: available_zones }
+      networks:
+        - id: { get_param: subnet }
+      security_groups:
+        - id: { get_param: security_groups }
+      vpc_id: { get_param: vpc_id }
+      health_periodic_audit_method: NOVA_AUDIT
+      health_periodic_audit_time: 15
+      instance_terminate_policy: OLD_INSTANCE
+      delete_publicip: true
