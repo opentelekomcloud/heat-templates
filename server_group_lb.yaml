@@ -1,0 +1,149 @@
+heat_template_version: 2015-04-30
+
+description: Simple HOT template to create a server group with 2 VMs and a load balancer on OTC
+
+parameters:
+
+  key_name:
+    type: string
+    description: Name of a KeyPair to enable SSH access to the instance
+    default: heat-key
+  flavor:
+    type: string
+    description: Instance type for WordPress server
+    default: c1.medium
+  image:
+    type: string
+    description: OTC Images
+    default: Standard_openSUSE_42_JeOS_latest
+  public_net_id:
+    type: string
+    description: ID of public network for which floating IP addresses will be allocated
+    default: 0a2228f2-7f8a-45f1-8e09-9039e1d09975
+  network:
+    type: string
+    description: The network for the VM
+    default: 1c119f50-f60a-42f1-a459-c4ab4705fa48
+  subnet:
+    type: string
+    description: The network for the VM
+    default: TRAIN
+  lbe_port:
+    type: string
+    description: port number
+    default: 80
+  lbi_port:
+    type: string
+    description: port number
+    default: 80
+  security_group_name:
+    type: string
+    description: ID of security group
+    default: lb_demo_sg
+  srvgroup_name:
+    type: string
+    description: Name of the ServerGroup
+    default: ServerGroup
+
+resources:
+ lb:
+   type: OS::Neutron::LBaaS::LoadBalancer
+   properties:
+     vip_subnet: { get_param: subnet }
+ listener:
+   type: OS::Neutron::LBaaS::Listener
+   properties:
+     loadbalancer: { get_resource: lb }
+     protocol: HTTP
+     protocol_port: { get_param: lbe_port }
+ floating_ip:
+   type: OS::Neutron::FloatingIP
+   properties:
+     floating_network: { get_param: public_net_id }
+     port_id: { get_attr: [lb, vip_port_id ]}
+ pool:
+   type: OS::Neutron::LBaaS::Pool
+   properties:
+     lb_algorithm: ROUND_ROBIN
+     protocol: HTTP
+     listener: { get_resource: listener }
+ monitor:
+   type: OS::Neutron::LBaaS::HealthMonitor
+   properties:
+     delay: 3
+     type: HTTP
+     timeout: 3
+     max_retries: 3
+     pool: { get_resource: pool }
+ security_group:
+   type: OS::Neutron::SecurityGroup
+   properties:
+     name: {get_param: security_group_name}
+     rules:
+       - protocol: icmp
+       - protocol: tcp
+         port_range_min: 22
+         port_range_max: 22
+       - protocol: tcp
+         port_range_min: 80
+         port_range_max: 80
+       - protocol: tcp
+         port_range_min: 443
+         port_range_max: 443
+ srvgroup: 
+   type: OS::Nova::ServerGroup 
+   properties: 
+     name:  { get_param: srvgroup_name }
+     policies: [ 'anti-affinity' ] 
+ vm1:
+   type: OS::Nova::Server
+   properties:
+     image: { get_param: image }
+     flavor: { get_param: flavor }
+     availability_zone: eu-de-01
+     key_name: { get_param: key_name }
+     networks:
+       - network: { get_param: network }
+     security_groups: [{get_resource: security_group}]
+     user_data_format: RAW
+     scheduler_hints: 
+          group: { get_resource: srvgroup }
+ pool_m1:
+    type: OS::Neutron::LBaaS::PoolMember
+    properties:
+      pool: { get_resource: pool }
+      address: { get_attr: [ vm1, first_address ]}
+      protocol_port: { get_param: lbi_port }
+      subnet: { get_param: subnet }
+ vm2:
+   type: OS::Nova::Server
+   properties:
+     image: { get_param: image }
+     flavor: { get_param: flavor }
+     availability_zone: eu-de-02
+     key_name: { get_param: key_name }
+     networks:
+       - network: { get_param: network }
+     security_groups: [{get_resource: security_group}]
+     user_data_format: RAW
+     scheduler_hints: 
+        group: { get_resource: srvgroup }
+ pool_m2:
+    type: OS::Neutron::LBaaS::PoolMember
+    properties:
+      pool: { get_resource: pool }
+      address: { get_attr: [ vm2, first_address ]}
+      protocol_port: { get_param: lbi_port }
+      subnet: { get_param: subnet }
+
+outputs:
+  lburl:
+    value:
+      str_replace:
+        template: http://IP_ADDRESS:PORT
+        params:
+          IP_ADDRESS: { get_attr: [ floating_ip, floating_ip_address ] }
+          PORT: { get_param: lbe_port }
+    description: >
+      This URL is the "external" URL that can be used to access the
+      load balancer.
