@@ -15,7 +15,7 @@ parameters:
   image:
     type: string
     description: OTC Images
-    default: Standard_openSUSE_42.2_JeOS_latest
+    default: Standard_openSUSE_42_JeOS_latest
   network:
     type: string
     description: The network for the VM
