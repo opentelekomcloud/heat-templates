@@ -15,7 +15,7 @@ parameters:
   image:
     type: string
     description: Name or ID of the image to use for the instance.
-    default: Standard_openSUSE_42.1_JeOS_latest
+    default: Standard_openSUSE_42_JeOS_latest
   network:
     type: string
     description: The network for the VM
