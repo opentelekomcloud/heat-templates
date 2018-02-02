@@ -48,7 +48,7 @@ parameters:
     description: End of private network IP address allocation pool
     default: 172.16.11.252
   private_net_dns:
-    type: string
+    type: comma_delimited_list
     description: DNS servers
     default: [100.125.4.25, 8.8.8.8]
 
