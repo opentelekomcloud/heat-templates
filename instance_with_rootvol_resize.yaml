@@ -1,0 +1,40 @@
+heat_template_version: 2013-05-23
+
+description: Template to create nova instance with root volume of custom size
+             Specify your network ID, adjust key_name and disk_size if necessary
+parameters:
+  disk_size:
+    type: string
+    description: Size of the root volume
+    default: 42
+  key_name:
+    type: string
+    description: Name of an existing key pair to use for the instance
+    default: heat_key
+  ImageID:
+    type: string
+    description: Image use to boot a server
+    default: Standard_openSUSE_42_JeOS_latest
+  NetID:
+    type: string
+    description: Network ID for the server
+resources:
+  server1:
+    type: OS::Nova::Server
+    depends_on: rootvol1
+    properties:
+      key_name: { get_param: key_name }
+      block_device_mapping_v2: [{ boot_index: 0, device_name: "vda", volume_id : { get_resource : rootvol1 }, delete_on_termination : "true" }]
+      flavor: "c1.medium"
+      networks:
+      - network: { get_param: NetID }
+      user_data_format: RAW
+  rootvol1:
+    type: OS::Cinder::Volume
+    properties:
+      image : {"Ref": "ImageID"}
+      size  : { get_param: disk_size }
+outputs:
+  instance_networks:
+    description: The IP addresses of the deployed instance
+    value: { get_attr: [server1, networks] }
