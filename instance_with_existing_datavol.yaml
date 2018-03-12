@@ -1,0 +1,67 @@
+heat_template_version: 2013-05-23
+
+description: 
+  A HOT template that creates VM instance and attaches and existing Cinder volume.
+  Mandatory - Specify the volume uuid and your subnet.
+
+parameters:
+  key_name:
+    type: string
+    description: Name of an existing key pair to use for the instance
+    default: heat_key
+  flavor:
+    type: string
+    description: Flavor for the instance to be created
+    default: c1.medium
+  image:
+    type: string
+    description: Name or ID of the image to use for the instance.
+    default: Standard_CentOS_7_latest
+  network:
+    type: string
+    description: The network for the VM
+    default: 88c43184-5db2-442f-83bd-1dcbe4f6580f
+  vol_id:
+    type: string
+    description: The id of the existing Cinder volume
+    default: d32315af-b90c-437c-981d-b5fb81b6dcff
+  vol_mp:
+    type: string
+    description: Name of the mountpoint
+    default: /dev/xvdf
+  dir_name:
+    type: string
+    description: Name of the directory
+    default: /testvol
+
+resources:
+  my_instance:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_param: key_name }
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      networks: 
+        - network: { get_param: network }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash -x
+            mkdir $dir_name
+            mount $vol $dir_name -t ext4
+          params:
+            $dir: {get_param: dir_name}
+            $vol: {get_param: vol_mp}
+
+  vol_att:
+    type: OS::Cinder::VolumeAttachment
+    properties:
+      instance_uuid: { get_resource: my_instance }
+      volume_id: { get_param: vol_id }
+      mountpoint: /dev/vdf
+
+outputs:
+  instance_networks:
+    description: The IP addresses of the deployed instance
+    value: { get_attr: [my_instance, networks] }
