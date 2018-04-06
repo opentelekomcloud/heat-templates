@@ -1,0 +1,96 @@
+heat_template_version: '2014-10-16'
+
+description: >
+  HOT template to create single Ubuntu instance on OTC
+  Downloads diskimage-builder and heat-agents and build a custom fedora image
+  for Heat software deployment (sd)
+
+parameters:
+
+  key_name:
+    type: string
+    description: Name of a KeyPair to enable SSH access to the instance
+    default: heat_key
+  image:
+    type: string
+    description: Ubuntu16 image
+    default: Community_Ubuntu_16.04_TSI_latest
+  private_net:
+    type: string
+    description: ID of private network into which servers get deployed
+    default: a45173e7-3c00-485f-b297-3bd73bd6d80b
+  private_subnet:
+    type: string
+    description: ID of private sub network into which servers get deployed
+    default: 7b516a68-81cc-443d-a62b-cd1ae902d3c7
+
+resources:
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: sd-tmp-sg
+      rules:
+        - protocol: icmp
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+
+  sd_instance:
+    type: OS::Nova::Server
+    properties:
+      name: ubuntu-sd-imgbuild
+      flavor: c1.medium
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      networks:
+        - port: {get_resource: sd_port}
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash -x
+
+            sleep 60
+
+            apt-get update
+
+            sleep 10
+
+	    git clone https://git.openstack.org/openstack/diskimage-builder.git
+	    git clone https://git.openstack.org/openstack/tripleo-image-elements.git
+	    git clone https://git.openstack.org/openstack/heat-agents.git
+
+            export ELEMENTS_PATH=tripleo-image-elements/elements:heat-agents/
+            export BASE_ELEMENTS="fedora selinux-permissive"
+            export AGENT_ELEMENTS="os-collect-config os-refresh-config os-apply-config"
+            export DEPLOYMENT_BASE_ELEMENTS="heat-config heat-config-script"
+            export DEPLOYMENT_TOOL=""
+	    export IMAGE_NAME=fedora-software-config
+            disk-image-create vm $BASE_ELEMENTS $AGENT_ELEMENTS $DEPLOYMENT_BASE_ELEMENTS $DEPLOYMENT_TOOL -o $IMAGE_NAME.qcow2
+
+
+  sd_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      port_id: {get_resource: sd_port}
+      floating_network_id: 0a2228f2-7f8a-45f1-8e09-9039e1d09975
+    depends_on: sd_instance
+
+  sd_port:
+    type: OS::Neutron::Port
+    properties:
+      fixed_ips:
+      - subnet_id: {get_param: private_subnet}
+      network_id: {get_param: private_net}
+      security_groups:
+      - {get_resource: security_group}
+
+outputs:
+  PublicIP:
+    description: IP address in public network
+    value:
+      get_attr: [tf_floating_ip, floating_ip_address]
+  PrivateIp:
+    description: IP address in private network
+    value:
+      get_attr: [tf_instance, first_address]
