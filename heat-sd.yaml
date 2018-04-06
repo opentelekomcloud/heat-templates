@@ -1,0 +1,64 @@
+heat_template_version: 2014-10-16
+
+description: Example template that creates a heat/rts software deployment.
+
+parameters:
+     name:
+            type: string
+            label: Name or ID
+            description: Name to be used for compute instance
+            default: test-heat-sd
+     image:
+            type: string
+            label: Image name or ID
+            description: Image to be used for compute instance
+            default: fedora-software-config
+     flavor:
+            type: string
+            label: flavor name
+            description: Name of flavor to be used for compute instance
+            default: s1.medium
+     network:
+            type: string
+            label: Network name or ID
+            description: Network to attach server to.
+            default: ec6559a3-3fe3-4350-b579-a4ae718af34f
+     availability_zone:
+            type: string
+            label: availability_zone
+            description: availability zone.
+            default: eu-de-01
+
+resources:
+     neutron_port:
+            type: OS::Neutron::Port
+            properties:
+               network: { get_param: network }
+     configure:
+            type: OS::Heat::SoftwareConfig
+            properties:
+               group: script
+               config: |
+                    #!/bin/sh
+                    echo "Running boot script" > /tmp/helloword
+ 
+     deployment:
+            type: OS::Heat::SoftwareDeployment
+            properties: 
+               config: { get_resource: configure }
+               server: { get_resource: server }
+               signal_transport: TEMP_URL_SIGNAL 
+               input_values:
+                    foo: fooooo
+                    bar: baaaaa   
+     server:
+            type: OS::Nova::Server
+            properties:
+               name: { get_param: name }
+               image: { get_param: image }
+               flavor: { get_param: flavor }
+               networks:
+                   - port: { get_resource: neutron_port }
+               availability_zone: { get_param: availability_zone }   
+               user_data_format: SOFTWARE_CONFIG 
+               software_config_transport: POLL_TEMP_URL
